@@ -1,0 +1,96 @@
+// The generator block tells Prisma what to output when you run `npx prisma generate`.
+// "prisma-client-js" produces the type-safe JS/TS client you import as @prisma/client.
+// Docs: https://www.prisma.io/docs/orm/prisma-schema/overview/generators
+generator client {
+    provider = "prisma-client-js"
+}
+
+// The datasource block defines which database you connect to and how.
+// On Prisma 6, the connection URL lives here, read from the DATABASE_URL env var.
+// MongoDB connects directly, with no driver adapter needed.
+// Docs: https://www.prisma.io/docs/orm/prisma-schema/overview/data-sources
+datasource db {
+    provider = "mongodb"
+    url      = env("DATABASE_URL")
+}
+
+// Each model maps to a MongoDB collection. Field syntax is: name  Type  attributes.
+// Type modifiers: `?` makes a field optional, `[]` makes it a list/array.
+// Docs: https://www.prisma.io/docs/orm/prisma-schema/data-model/models
+model User {
+    // MongoDB's primary key is always the special "_id" field. In Prisma:
+    //   @id              marks this as the primary key
+    //   @default(auto()) lets MongoDB generate the value (an ObjectId)
+    //   @map("_id")      stores it under the DB's "_id" name while we call it `id`
+    //   @db.ObjectId     the native Mongo type for that id
+    // This exact combination is required for an id on MongoDB.
+    // Docs: https://www.prisma.io/docs/orm/prisma-schema/data-model/models#defining-ids-in-mongodb
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+
+    // The Clerk user id. @unique enforces one User row per Clerk account
+    // and lets us look users up by it (findUnique).
+    clerkId String @unique
+
+    // Relation fields have no DB column of their own. They tell Prisma how to fetch
+    // related rows. One user has many links, collections, and tags.
+    links       Link[]
+    collections Collection[]
+    tags        Tag[]
+}
+
+model Collection {
+    id   String @id @default(auto()) @map("_id") @db.ObjectId
+    name String
+
+    // one-to-many: User to Collections (this is the "many" side).
+    // The side that stores the foreign key carries the @relation attribute:
+    //   fields     the local scalar field holding the FK (userId)
+    //   references the field it points to on the other model (User.id)
+    // Docs: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations
+    userId String @db.ObjectId
+    user   User   @relation(fields: [userId], references: [id])
+
+    links     Link[]
+    createdAt DateTime @default(now()) // now() sets the timestamp at insert time
+}
+
+model Tag {
+    id   String @id @default(auto()) @map("_id") @db.ObjectId
+    name String
+
+    userId String @db.ObjectId
+    user   User   @relation(fields: [userId], references: [id])
+
+    // many-to-many: Tag to Link, MongoDB style.
+    // Mongo has no join table, so each side stores an array of the other side's ids.
+    // linkIds is that array of ObjectIds; `links` is the relation field that resolves them.
+    // Both fields and references are mandatory on both sides for a Mongo m-n relation.
+    // Docs: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations/many-to-many-relations#mongodb
+    linkIds String[] @db.ObjectId
+    links   Link[]   @relation(fields: [linkIds], references: [id])
+}
+
+model Link {
+    id       String  @id @default(auto()) @map("_id") @db.ObjectId
+    url      String
+    title    String? // optional (?), may be null
+    favicon  String?
+    notes    String?
+    favorite Boolean @default(false) // default applied when not provided
+
+    userId String @db.ObjectId
+    user   User   @relation(fields: [userId], references: [id])
+
+    // optional one-to-many: Collection to Links.
+    // collectionId is optional, so a link can exist without a collection.
+    // The relation field is also optional (Collection?) to match.
+    collectionId String?     @db.ObjectId
+    collection   Collection? @relation(fields: [collectionId], references: [id])
+
+    // The other side of the Tag to Link m-n. Mirrors the Tag model: an id array
+    // plus the relation field with matching fields and references.
+    tagIds String[] @db.ObjectId
+    tags   Tag[]    @relation(fields: [tagIds], references: [id])
+
+    createdAt DateTime @default(now())
+}
